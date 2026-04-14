@@ -37,6 +37,16 @@ interface GenerateApiResponse extends UnifiedGenerateResponse {
 const CARDS_PER_PAGE = 10;
 const SHEETS_PER_PAGE = 1; // one revision sheet at a time
 
+async function safeJsonError(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    return data.error || fallback;
+  } catch {
+    if (res.status === 413) return 'File is too large. Try a smaller PDF or PPTX.';
+    return `${fallback} (status ${res.status})`;
+  }
+}
+
 export default function UploadPage() {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>('upload');
@@ -76,8 +86,7 @@ export default function UploadPage() {
       clearInterval(stepTimer);
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Generation failed');
+        throw new Error(await safeJsonError(res, 'Generation failed'));
       }
 
       setGenerationStep(3);
@@ -112,7 +121,7 @@ export default function UploadPage() {
         const formData = new FormData();
         formData.append('file', files[i]);
         const res = await fetch('/api/generate', { method: 'POST', body: formData });
-        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Generation failed'); }
+        if (!res.ok) { throw new Error(await safeJsonError(res, 'Generation failed')); }
         const data: GenerateApiResponse = await res.json();
         // Auto-save
         const saveRes = await fetch('/api/decks', {

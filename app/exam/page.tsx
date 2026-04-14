@@ -102,8 +102,10 @@ export default function ExamPage() {
       clearInterval(stepTimer);
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Generation failed');
+        let errMsg = 'Generation failed';
+        try { const d = await res.json(); errMsg = d.error || errMsg; }
+        catch { if (res.status === 413) errMsg = 'File is too large. Try a smaller file.'; }
+        throw new Error(errMsg);
       }
 
       setGenerationStep(3);
