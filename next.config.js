@@ -9,7 +9,7 @@ const nextConfig = {
     ],
   },
   experimental: {
-    serverComponentsExternalPackages: ['better-sqlite3', 'pdf-parse', 'jszip', 'jsonrepair'],
+    serverComponentsExternalPackages: ['pdf-parse', 'jszip', 'jsonrepair'],
     serverActions: {
       bodySizeLimit: '500mb',
     },

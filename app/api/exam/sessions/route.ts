@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import {
-  getAllExamSessions,
-  createExamSession,
-  createExamQuestion,
-} from '@/lib/db';
+import { getAllExamSessions, createExamSession, createExamQuestion } from '@/lib/db';
 import { getAuthUserId } from '@/lib/auth';
 import type { GeneratedExamQuestion } from '@/lib/types';
 
@@ -13,7 +9,7 @@ export async function GET() {
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const sessions = getAllExamSessions(userId);
+    const sessions = await getAllExamSessions(userId);
     return NextResponse.json(sessions);
   } catch (error) {
     console.error('[GET /api/exam/sessions]', error);
@@ -28,10 +24,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { title, sourceFilename, summary, questions } = body as {
-      title: string;
-      sourceFilename?: string;
-      summary?: string;
-      questions: GeneratedExamQuestion[];
+      title: string; sourceFilename?: string; summary?: string; questions: GeneratedExamQuestion[];
     };
 
     if (!title || !questions?.length) {
@@ -39,27 +32,13 @@ export async function POST(request: NextRequest) {
     }
 
     const sessionId = randomUUID();
-
-    createExamSession({
-      id: sessionId,
-      user_id: userId,
-      title,
-      source_filename: sourceFilename,
-      summary,
-      question_count: questions.length,
-    });
+    await createExamSession({ id: sessionId, user_id: userId, title, source_filename: sourceFilename, summary, question_count: questions.length });
 
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
-      createExamQuestion({
-        id: randomUUID(),
-        session_id: sessionId,
-        question: q.question,
-        answer: q.answer,
-        importance: q.importance,
-        question_type: q.type,
-        topic: q.topic,
-        order_index: i,
+      await createExamQuestion({
+        id: randomUUID(), session_id: sessionId, question: q.question, answer: q.answer,
+        importance: q.importance, question_type: q.type, topic: q.topic, order_index: i,
       });
     }
 

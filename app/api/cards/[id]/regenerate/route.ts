@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCardById, updateCard, updateDeckStats } from '@/lib/db';
+import { getCardById, getDeckById, updateCard, updateDeckStats } from '@/lib/db';
 import { getAuthUserId } from '@/lib/auth';
 import { regenerateRichCard } from '@/lib/flashcard-generator';
-import type { Card } from '@/lib/types';
+
+type DeckRow = { user_id: string };
+type CardRow = { deck_id: string; front: string; back: string };
 
 export async function POST(
   _request: NextRequest,
@@ -12,15 +14,19 @@ export async function POST(
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const card = getCardById(params.id) as Card | undefined;
+    const card = await getCardById(params.id) as unknown as CardRow | null;
     if (!card) return NextResponse.json({ error: 'Card not found' }, { status: 404 });
+
+    // Ownership check
+    const deck = await getDeckById(card.deck_id) as unknown as DeckRow | null;
+    if (!deck || deck.user_id !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const { front, back } = await regenerateRichCard(card.front, card.back);
 
-    updateCard(params.id, { front, back });
-    updateDeckStats(card.deck_id);
+    await updateCard(params.id, { front, back });
+    await updateDeckStats(card.deck_id);
 
-    return NextResponse.json(getCardById(params.id));
+    return NextResponse.json(await getCardById(params.id));
   } catch (error) {
     console.error('[POST /api/cards/[id]/regenerate]', error);
     return NextResponse.json({ error: 'Failed to regenerate card' }, { status: 500 });

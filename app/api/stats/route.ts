@@ -8,7 +8,7 @@ export async function GET() {
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const stats = getStudyStats(userId) as StudyStats[];
+    const stats = await getStudyStats(userId) as unknown as StudyStats[];
 
     const today = new Date().toISOString().split('T')[0];
     let currentStreak = 0;
@@ -42,12 +42,8 @@ export async function GET() {
         const prev = new Date(sortedDates[i - 1]);
         const curr = new Date(sortedDates[i]);
         const diffDays = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
-        if (diffDays === 1) {
-          tempStreak++;
-        } else {
-          longestStreak = Math.max(longestStreak, tempStreak);
-          tempStreak = 1;
-        }
+        tempStreak = diffDays === 1 ? tempStreak + 1 : 1;
+        longestStreak = Math.max(longestStreak, tempStreak);
       }
     }
     longestStreak = Math.max(longestStreak, tempStreak);

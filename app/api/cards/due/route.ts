@@ -7,7 +7,7 @@ export async function GET() {
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const cards = getAllCardsDue(userId);
+    const cards = await getAllCardsDue(userId);
     return NextResponse.json(cards);
   } catch (error) {
     console.error('[GET /api/cards/due]', error);

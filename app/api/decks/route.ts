@@ -6,6 +6,7 @@ import {
   createCard,
   createRevisionSheet,
   updateDeckStats,
+  getDeckById,
 } from '@/lib/db';
 import { getAuthUserId } from '@/lib/auth';
 import type { GeneratedCard, GeneratedRevisionSheet } from '@/lib/types';
@@ -15,7 +16,7 @@ export async function GET() {
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const decks = getAllDecks(userId);
+    const decks = await getAllDecks(userId);
     return NextResponse.json(decks);
   } catch (error) {
     console.error('[GET /api/decks]', error);
@@ -38,15 +39,12 @@ export async function POST(request: NextRequest) {
     };
 
     if (!title || !cards || !Array.isArray(cards) || cards.length === 0) {
-      return NextResponse.json(
-        { error: 'title and cards are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'title and cards are required' }, { status: 400 });
     }
 
     const deckId = uuidv4();
 
-    createDeck({
+    await createDeck({
       id: deckId,
       user_id: userId,
       title: title.trim(),
@@ -55,7 +53,7 @@ export async function POST(request: NextRequest) {
     });
 
     for (const card of cards) {
-      createCard({
+      await createCard({
         id: uuidv4(),
         deck_id: deckId,
         front: card.front,
@@ -67,7 +65,7 @@ export async function POST(request: NextRequest) {
     if (revisionSheets && revisionSheets.length > 0) {
       for (let i = 0; i < revisionSheets.length; i++) {
         const sheet = revisionSheets[i];
-        createRevisionSheet({
+        await createRevisionSheet({
           id: uuidv4(),
           deck_id: deckId,
           title: sheet.title,
@@ -80,9 +78,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    updateDeckStats(deckId);
-
-    const newDeck = (await import('@/lib/db')).getDeckById(deckId);
+    await updateDeckStats(deckId);
+    const newDeck = await getDeckById(deckId);
     return NextResponse.json(newDeck, { status: 201 });
   } catch (error) {
     console.error('[POST /api/decks]', error);

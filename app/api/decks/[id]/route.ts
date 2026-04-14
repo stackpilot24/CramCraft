@@ -5,6 +5,7 @@ import {
   getCardsByDeckId,
   deleteDeck,
   updateDeckStats,
+  updateDeck,
   getCardsDueForReview,
   createCard,
   getCardById,
@@ -24,18 +25,18 @@ export async function GET(
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const deck = getDeckById(params.id) as DeckRow | undefined;
+    const deck = await getDeckById(params.id) as unknown as DeckRow | null;
     if (!deck) return NextResponse.json({ error: 'Deck not found' }, { status: 404 });
     if (deck.user_id !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    const cards = getCardsByDeckId(params.id) as Card[];
-    const dueCards = getCardsDueForReview(params.id) as Card[];
+    const cards = await getCardsByDeckId(params.id) as unknown as Card[];
+    const dueCards = await getCardsDueForReview(params.id) as unknown as Card[];
 
-    const mastered = cards.filter((c) => c.repetitions >= 3 && c.easiness_factor >= 2.0).length;
+    const mastered = cards.filter((c) => Number(c.repetitions) >= 3 && Number(c.easiness_factor) >= 2.0).length;
     const learning = cards.filter(
-      (c) => c.repetitions > 0 && (c.repetitions < 3 || c.easiness_factor < 2.0)
+      (c) => Number(c.repetitions) > 0 && (Number(c.repetitions) < 3 || Number(c.easiness_factor) < 2.0)
     ).length;
-    const newCards = cards.filter((c) => c.repetitions === 0).length;
+    const newCards = cards.filter((c) => Number(c.repetitions) === 0).length;
 
     const stats: DeckStats = {
       total: cards.length,
@@ -45,8 +46,8 @@ export async function GET(
       new: newCards,
     };
 
-    const noteCards = getNoteCardsByDeckId(params.id);
-    const revisionSheets = getRevisionSheetsByDeckId(params.id);
+    const noteCards = await getNoteCardsByDeckId(params.id);
+    const revisionSheets = await getRevisionSheetsByDeckId(params.id);
     return NextResponse.json({ ...deck, cards, stats, noteCards, revisionSheets });
   } catch (error) {
     console.error('[GET /api/decks/[id]]', error);
@@ -62,28 +63,22 @@ export async function PUT(
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const deck = getDeckById(params.id) as DeckRow | undefined;
+    const deck = await getDeckById(params.id) as unknown as DeckRow | null;
     if (!deck) return NextResponse.json({ error: 'Deck not found' }, { status: 404 });
     if (deck.user_id !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json();
-    const db = (await import('@/lib/db')).default();
+    const data: { title?: string; description?: string | null } = {};
+    if (body.title) data.title = body.title.trim();
+    if (body.description !== undefined) data.description = body.description?.trim() || null;
 
-    const fields: string[] = [];
-    const values: unknown[] = [];
-
-    if (body.title) { fields.push('title = ?'); values.push(body.title.trim()); }
-    if (body.description !== undefined) { fields.push('description = ?'); values.push(body.description?.trim() || null); }
-
-    if (fields.length === 0) {
+    if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
-    values.push(params.id);
-    db.prepare(`UPDATE decks SET ${fields.join(', ')} WHERE id = ?`).run(...(values as Parameters<typeof db.prepare>[0][]));
-
-    updateDeckStats(params.id);
-    return NextResponse.json(getDeckById(params.id));
+    await updateDeck(params.id, data);
+    await updateDeckStats(params.id);
+    return NextResponse.json(await getDeckById(params.id));
   } catch (error) {
     console.error('[PUT /api/decks/[id]]', error);
     return NextResponse.json({ error: 'Failed to update deck' }, { status: 500 });
@@ -98,7 +93,7 @@ export async function POST(
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const deck = getDeckById(params.id) as DeckRow | undefined;
+    const deck = await getDeckById(params.id) as unknown as DeckRow | null;
     if (!deck) return NextResponse.json({ error: 'Deck not found' }, { status: 404 });
     if (deck.user_id !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
@@ -110,10 +105,10 @@ export async function POST(
     }
 
     const cardId = uuidv4();
-    createCard({ id: cardId, deck_id: params.id, front: front.trim(), back: back.trim(), card_type: card_type ?? 'concept' });
-    updateDeckStats(params.id);
+    await createCard({ id: cardId, deck_id: params.id, front: front.trim(), back: back.trim(), card_type: card_type ?? 'concept' });
+    await updateDeckStats(params.id);
 
-    return NextResponse.json(getCardById(cardId), { status: 201 });
+    return NextResponse.json(await getCardById(cardId), { status: 201 });
   } catch (error) {
     console.error('[POST /api/decks/[id]]', error);
     return NextResponse.json({ error: 'Failed to create card' }, { status: 500 });
@@ -128,11 +123,11 @@ export async function DELETE(
     const userId = await getAuthUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const deck = getDeckById(params.id) as DeckRow | undefined;
+    const deck = await getDeckById(params.id) as unknown as DeckRow | null;
     if (!deck) return NextResponse.json({ error: 'Deck not found' }, { status: 404 });
     if (deck.user_id !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    deleteDeck(params.id);
+    await deleteDeck(params.id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[DELETE /api/decks/[id]]', error);
