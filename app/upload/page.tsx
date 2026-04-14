@@ -20,39 +20,15 @@ import Badge from '@/components/ui/Badge';
 import RevisionSheetCard from '@/components/RevisionSheet';
 import type { GeneratedCard, GeneratedRevisionSheet, UnifiedGenerateResponse } from '@/lib/types';
 
-type Stage = 'upload' | 'generating' | 'preview' | 'batch';
+type Stage = 'upload' | 'extracting' | 'generating' | 'preview';
 type PreviewTab = 'notes' | 'flashcards';
-
-interface BatchItem {
-  file: File;
-  status: 'pending' | 'processing' | 'done' | 'error';
-  deckTitle?: string;
-  error?: string;
-}
 
 interface GenerateApiResponse extends UnifiedGenerateResponse {
   pages?: number;
 }
 
 const CARDS_PER_PAGE = 10;
-const SHEETS_PER_PAGE = 1; // one revision sheet at a time
-
-async function safeJsonError(res: Response, fallback: string): Promise<string> {
-  const contentType = res.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    try {
-      const data = await res.json();
-      return data.error || fallback;
-    } catch {
-      return fallback;
-    }
-  }
-  // Non-JSON response (Vercel 413, gateway timeout, nginx errors, etc.)
-  if (res.status === 413) return 'File is too large for the server. Please use a PDF or PPTX under 4 MB.';
-  if (res.status === 504 || res.status === 524) return 'Request timed out. Try a smaller or simpler file.';
-  if (res.status === 401) return 'Please sign in to upload files.';
-  return `${fallback} (${res.status})`;
-}
+const SHEETS_PER_PAGE = 1;
 
 export default function UploadPage() {
   const router = useRouter();
@@ -69,31 +45,50 @@ export default function UploadPage() {
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [previewTab, setPreviewTab] = useState<PreviewTab>('notes');
   const [cardPage, setCardPage] = useState(1);
-  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
 
   const handleUpload = async (file: File) => {
     setFilename(file.name);
-    setStage('generating');
     setError(null);
     setGenerationStep(0);
 
+    // Step 1: Extract text in the browser (handles any file size)
+    setStage('extracting');
+    let text: string;
+    let pageCount: number | undefined;
+
+    try {
+      const { extractFileText } = await import('@/lib/client-extractor');
+      const result = await extractFileText(file);
+      text = result.text;
+      pageCount = result.pageCount;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read the file.');
+      setStage('upload');
+      return;
+    }
+
+    // Step 2: Send extracted text to API for AI generation
+    setStage('generating');
     const stepTimer = setInterval(() => {
       setGenerationStep((s) => Math.min(s + 1, 2));
     }, 2000);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
       const res = await fetch('/api/generate', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, filename: file.name, pageCount }),
       });
 
       clearInterval(stepTimer);
 
       if (!res.ok) {
-        throw new Error(await safeJsonError(res, 'Generation failed'));
+        let msg = 'Generation failed';
+        try {
+          const data = await res.json();
+          msg = data.error || msg;
+        } catch { /* ignore */ }
+        throw new Error(msg);
       }
 
       setGenerationStep(3);
@@ -110,47 +105,8 @@ export default function UploadPage() {
       }, 500);
     } catch (err) {
       clearInterval(stepTimer);
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
       setStage('upload');
-    }
-  };
-
-  const handleUploadMultiple = async (files: File[]) => {
-    if (files.length === 1) { handleUpload(files[0]); return; }
-    setError(null);
-    const items: BatchItem[] = files.map((f) => ({ file: f, status: 'pending' }));
-    setBatchItems(items);
-    setStage('batch');
-
-    for (let i = 0; i < files.length; i++) {
-      setBatchItems((prev) => prev.map((it, idx) => idx === i ? { ...it, status: 'processing' } : it));
-      try {
-        const formData = new FormData();
-        formData.append('file', files[i]);
-        const res = await fetch('/api/generate', { method: 'POST', body: formData });
-        if (!res.ok) { throw new Error(await safeJsonError(res, 'Generation failed')); }
-        const data: GenerateApiResponse = await res.json();
-        // Auto-save
-        const saveRes = await fetch('/api/decks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: data.suggestedTitle,
-            description: data.description,
-            sourceFilename: files[i].name,
-            cards: data.cards,
-            revisionSheets: data.revisionSheets,
-          }),
-        });
-        if (!saveRes.ok) throw new Error('Failed to save deck');
-        setBatchItems((prev) => prev.map((it, idx) =>
-          idx === i ? { ...it, status: 'done', deckTitle: data.suggestedTitle } : it
-        ));
-      } catch (err) {
-        setBatchItems((prev) => prev.map((it, idx) =>
-          idx === i ? { ...it, status: 'error', error: err instanceof Error ? err.message : 'Failed' } : it
-        ));
-      }
     }
   };
 
@@ -189,7 +145,6 @@ export default function UploadPage() {
   const removeCard = (globalIdx: number) => {
     if (!generated) return;
     setGenerated({ ...generated, cards: generated.cards.filter((_, idx) => idx !== globalIdx) });
-    // If removing last card on current page, go back one page
     const totalPages = Math.ceil((generated.cards.length - 1) / CARDS_PER_PAGE);
     if (cardPage > totalPages && totalPages > 0) setCardPage(totalPages);
   };
@@ -203,18 +158,16 @@ export default function UploadPage() {
     }
   };
 
-  // ── Derived pagination values ───────────────────────────────────────────────
   const totalCards = generated?.cards.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCards / CARDS_PER_PAGE));
   const pagedCards = generated?.cards.slice(
     (cardPage - 1) * CARDS_PER_PAGE,
     cardPage * CARDS_PER_PAGE
   ) ?? [];
-  const pageStart = (cardPage - 1) * CARDS_PER_PAGE; // global index offset
+  const pageStart = (cardPage - 1) * CARDS_PER_PAGE;
 
   const canSave = !!generated && generated.cards.length > 0 && !!title.trim();
 
-  // ── Save button (reused at top and bottom) ─────────────────────────────────
   const SaveButton = ({ compact = false }: { compact?: boolean }) => (
     <Button
       onClick={handleSave}
@@ -251,7 +204,6 @@ export default function UploadPage() {
           )}
         </div>
 
-        {/* Top-right save button — only in preview */}
         {stage === 'preview' && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -287,7 +239,32 @@ export default function UploadPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
           >
-            <PDFUploader onUpload={handleUpload} onUploadMultiple={handleUploadMultiple} multiple />
+            <PDFUploader onUpload={handleUpload} />
+          </motion.div>
+        )}
+
+        {/* ── Extracting text (client-side) ── */}
+        {stage === 'extracting' && (
+          <motion.div
+            key="extracting"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-card border border-gray-100 dark:border-gray-700 text-center space-y-4"
+          >
+            <div className="flex justify-center">
+              <motion.div
+                className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+              >
+                <BookOpen className="h-7 w-7 text-primary" />
+              </motion.div>
+            </div>
+            <div>
+              <p className="font-serif text-gray-900 dark:text-gray-100 text-lg">Reading your file…</p>
+              <p className="text-sm text-gray-400 font-sans mt-1 truncate max-w-xs mx-auto">{filename}</p>
+            </div>
           </motion.div>
         )}
 
@@ -301,40 +278,6 @@ export default function UploadPage() {
             className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-card border border-gray-100 dark:border-gray-700"
           >
             <GenerationProgress step={generationStep} filename={filename} />
-          </motion.div>
-        )}
-
-        {/* ── Batch processing ── */}
-        {stage === 'batch' && (
-          <motion.div key="batch" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-card border border-gray-100 dark:border-gray-700 space-y-4">
-            <h2 className="font-serif text-gray-900 dark:text-gray-100 text-lg">Generating {batchItems.length} decks…</h2>
-            <div className="space-y-3">
-              {batchItems.map((item, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-700/50">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-sm ${
-                    item.status === 'done' ? 'bg-green-100 dark:bg-green-900/40 text-green-600' :
-                    item.status === 'error' ? 'bg-red-100 dark:bg-red-900/40 text-red-500' :
-                    item.status === 'processing' ? 'bg-primary/20 text-primary' :
-                    'bg-gray-200 dark:bg-gray-600 text-gray-400'
-                  }`}>
-                    {item.status === 'done' ? '✓' : item.status === 'error' ? '✗' : item.status === 'processing' ? '…' : String(i + 1)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-sans font-medium text-gray-800 dark:text-gray-200 truncate">{item.file.name}</p>
-                    {item.status === 'done' && <p className="text-xs text-green-600 dark:text-green-400 font-sans">Saved as "{item.deckTitle}"</p>}
-                    {item.status === 'error' && <p className="text-xs text-red-500 font-sans">{item.error}</p>}
-                    {item.status === 'processing' && <p className="text-xs text-primary font-sans animate-pulse">Generating…</p>}
-                    {item.status === 'pending' && <p className="text-xs text-gray-400 font-sans">Waiting…</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {batchItems.every((it) => it.status === 'done' || it.status === 'error') && (
-              <Button onClick={() => router.push('/dashboard')} className="w-full gap-2 mt-2">
-                View all in Library →
-              </Button>
-            )}
           </motion.div>
         )}
 
@@ -409,7 +352,7 @@ export default function UploadPage() {
               </button>
             </div>
 
-            {/* ── Revision Sheets with pagination ── */}
+            {/* ── Revision Sheets ── */}
             {previewTab === 'notes' && (() => {
               const sheets = generated.revisionSheets ?? [];
               const totalSheets = sheets.length;
@@ -422,7 +365,6 @@ export default function UploadPage() {
                     </div>
                   ) : (
                     <>
-                      {/* Sheet nav bar */}
                       {totalSheets > 1 && (
                         <div className="flex items-center justify-between gap-3 px-1">
                           <button
@@ -455,7 +397,6 @@ export default function UploadPage() {
                           </button>
                         </div>
                       )}
-                      {/* Sheet counter */}
                       {totalSheets > 1 && (
                         <p className="text-xs text-center text-gray-400 font-sans">
                           Sheet {sheetPage} of {totalSheets}
@@ -480,10 +421,9 @@ export default function UploadPage() {
               );
             })()}
 
-            {/* ── Flashcards with pagination ── */}
+            {/* ── Flashcards ── */}
             {previewTab === 'flashcards' && (
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-card border border-gray-100 dark:border-gray-700 overflow-hidden">
-                {/* Card list header */}
                 <div className="px-4 sm:px-5 py-3.5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-3">
                   <h2 className="font-serif text-gray-900 dark:text-gray-100 text-sm sm:text-base">
                     {totalCards} Flashcards
@@ -506,7 +446,6 @@ export default function UploadPage() {
                   </button>
                 </div>
 
-                {/* Card rows */}
                 <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
                   {pagedCards.map((card, localIdx) => {
                     const globalIdx = pageStart + localIdx;
@@ -521,7 +460,6 @@ export default function UploadPage() {
                       >
                         <button className="w-full text-left" onClick={() => toggleCard(globalIdx)}>
                           <div className="flex items-start gap-3">
-                            {/* Card number */}
                             <span className="text-xs text-gray-300 dark:text-gray-600 font-mono mt-0.5 flex-shrink-0 w-5 text-right">
                               {globalIdx + 1}
                             </span>
@@ -548,7 +486,6 @@ export default function UploadPage() {
                                 )}
                               </AnimatePresence>
                             </div>
-                            {/* Remove card */}
                             <button
                               onClick={(e) => { e.stopPropagation(); removeCard(globalIdx); }}
                               className="text-gray-300 hover:text-red-400 dark:hover:text-red-500 transition-colors text-xs font-sans flex-shrink-0 p-1"
@@ -564,7 +501,6 @@ export default function UploadPage() {
                   })}
                 </div>
 
-                {/* Pagination footer */}
                 {totalPages > 1 && (
                   <div className="px-4 sm:px-5 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
                     <span className="text-xs text-gray-400 font-sans">
@@ -579,8 +515,6 @@ export default function UploadPage() {
                       >
                         <ChevronLeft size={16} />
                       </button>
-
-                      {/* Page number pills */}
                       <div className="flex items-center gap-0.5">
                         {Array.from({ length: totalPages }, (_, i) => i + 1)
                           .filter((p) => p === 1 || p === totalPages || Math.abs(p - cardPage) <= 1)
@@ -607,7 +541,6 @@ export default function UploadPage() {
                             )
                           )}
                       </div>
-
                       <button
                         onClick={() => { setCardPage((p) => Math.min(totalPages, p + 1)); setExpandedCards(new Set()); }}
                         disabled={cardPage === totalPages}

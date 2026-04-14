@@ -8,8 +8,6 @@ import Button from './ui/Button';
 
 interface PDFUploaderProps {
   onUpload: (file: File) => void;
-  onUploadMultiple?: (files: File[]) => void;
-  multiple?: boolean;
   disabled?: boolean;
 }
 
@@ -36,73 +34,43 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-const VERCEL_WARN_SIZE = 4 * 1024 * 1024; // 4 MB — warn before Vercel's 4.5 MB hard limit
-
 function validateFile(file: File): string | null {
   if (!getFileType(file)) return 'Please upload a PDF or PowerPoint (PPTX) file.';
   if (file.size > MAX_SIZE) return `File too large. Max 500 MB (yours: ${formatFileSize(file.size)}).`;
   return null;
 }
 
-function warnFile(file: File): string | null {
-  if (file.size > VERCEL_WARN_SIZE)
-    return `Large file (${formatFileSize(file.size)}) — may fail on hosted servers. Try to keep files under 4 MB.`;
-  return null;
-}
-
-export default function PDFUploader({ onUpload, onUploadMultiple, multiple = false, disabled }: PDFUploaderProps) {
+export default function PDFUploader({ onUpload, disabled }: PDFUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const addFiles = useCallback((incoming: File[]) => {
+  const handleFile = useCallback((file: File) => {
     setError(null);
-    const valid: File[] = [];
-    let firstErr: string | null = null;
-
-    for (const f of incoming) {
-      const err = validateFile(f);
-      if (err) { firstErr = err; continue; }
-      // deduplicate by name+size
-      if (!selectedFiles.some((s) => s.name === f.name && s.size === f.size)) {
-        valid.push(f);
-      }
-    }
-
-    if (firstErr) setError(firstErr);
-    if (valid.length > 0) {
-      setSelectedFiles((prev) => multiple ? [...prev, ...valid] : [valid[0]]);
-      const w = valid.map(warnFile).find(Boolean) ?? null;
-      setWarning(w);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [multiple, selectedFiles]);
+    const err = validateFile(file);
+    if (err) { setError(err); return; }
+    setSelectedFile(file);
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    addFiles(Array.from(e.dataTransfer.files));
-  }, [addFiles]);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) addFiles(Array.from(e.target.files));
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
     e.target.value = '';
   };
 
-  const removeFile = (idx: number) => {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
+  const handleGenerate = () => {
+    if (selectedFile) onUpload(selectedFile);
   };
 
-  const handleGenerate = () => {
-    if (selectedFiles.length === 0) return;
-    if (multiple && onUploadMultiple) {
-      onUploadMultiple(selectedFiles);
-    } else {
-      onUpload(selectedFiles[0]);
-    }
-  };
+  const ft = selectedFile ? getFileType(selectedFile) : null;
 
   return (
     <div className="space-y-4">
@@ -113,7 +81,7 @@ export default function PDFUploader({ onUpload, onUploadMultiple, multiple = fal
           'transition-colors duration-150',
           isDragging
             ? 'border-primary bg-primary/5 dark:bg-primary/10'
-            : selectedFiles.length > 0
+            : selectedFile
             ? 'border-green-400 bg-green-50/60 dark:bg-green-900/10'
             : error
             ? 'border-red-400 bg-red-50 dark:bg-red-900/10'
@@ -135,7 +103,6 @@ export default function PDFUploader({ onUpload, onUploadMultiple, multiple = fal
           ref={inputRef}
           type="file"
           accept=".pdf,.pptx,.ppt,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint"
-          multiple={multiple}
           className="sr-only"
           onChange={handleInputChange}
           disabled={disabled}
@@ -159,12 +126,12 @@ export default function PDFUploader({ onUpload, onUploadMultiple, multiple = fal
                 </div>
               </div>
               <p className="text-gray-800 dark:text-gray-200 font-semibold font-sans mb-1 text-base sm:text-lg">
-                {multiple ? 'Drag & drop one or more files' : 'Drag & drop your file here'}
+                Drag & drop your file here
               </p>
               <p className="text-sm text-gray-400 font-sans mb-3">
                 or{' '}
                 <span className="text-primary dark:text-primary-300 underline underline-offset-2 font-medium">
-                  browse to choose {multiple ? 'files' : 'a file'}
+                  browse to choose a file
                 </span>
               </p>
               <div className="flex items-center justify-center gap-2 flex-wrap">
@@ -175,7 +142,7 @@ export default function PDFUploader({ onUpload, onUploadMultiple, multiple = fal
                   <Presentation size={11} /> PPTX
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs font-sans text-gray-400">
-                  Up to 500 MB each
+                  Up to 500 MB
                 </span>
               </div>
             </motion.div>
@@ -194,71 +161,41 @@ export default function PDFUploader({ onUpload, onUploadMultiple, multiple = fal
         )}
       </AnimatePresence>
 
-      {/* Warning */}
+      {/* Selected file */}
       <AnimatePresence>
-        {warning && !error && (
-          <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="flex items-start gap-2 text-amber-600 dark:text-amber-400 text-sm font-sans">
-            <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
-            {warning}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* File list */}
-      <AnimatePresence>
-        {selectedFiles.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="space-y-2">
-            {selectedFiles.map((file, idx) => {
-              const ft = getFileType(file);
-              return (
-                <motion.div key={`${file.name}-${idx}`}
-                  initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
-                  transition={{ delay: idx * 0.04 }}
-                  className="flex items-center gap-3 p-3.5 bg-green-50 dark:bg-green-900/15 border border-green-200 dark:border-green-800 rounded-xl">
-                  <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0',
-                    ft === 'pdf' ? 'bg-red-100 dark:bg-red-900/30' : 'bg-orange-100 dark:bg-orange-900/30')}>
-                    {ft === 'pdf'
-                      ? <FileText className="h-4 w-4 text-red-500 dark:text-red-400" />
-                      : <Presentation className="h-4 w-4 text-orange-500 dark:text-orange-400" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 font-sans truncate">{file.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 font-sans flex items-center gap-1">
-                      <CheckCircle2 size={10} className="text-green-500" />
-                      {formatFileSize(file.size)}
-                    </p>
-                  </div>
-                  <button onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
-                    className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors flex-shrink-0">
-                    <X size={14} />
-                  </button>
-                </motion.div>
-              );
-            })}
-
-            {/* Add more button for multiple mode */}
-            {multiple && (
-              <button onClick={() => inputRef.current?.click()}
-                className="w-full py-2 text-xs text-primary dark:text-primary-300 font-sans font-medium hover:underline transition-colors">
-                + Add another file
+        {selectedFile && (
+          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <div className="flex items-center gap-3 p-3.5 bg-green-50 dark:bg-green-900/15 border border-green-200 dark:border-green-800 rounded-xl">
+              <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0',
+                ft === 'pdf' ? 'bg-red-100 dark:bg-red-900/30' : 'bg-orange-100 dark:bg-orange-900/30')}>
+                {ft === 'pdf'
+                  ? <FileText className="h-4 w-4 text-red-500 dark:text-red-400" />
+                  : <Presentation className="h-4 w-4 text-orange-500 dark:text-orange-400" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 font-sans truncate">{selectedFile.name}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-sans flex items-center gap-1">
+                  <CheckCircle2 size={10} className="text-green-500" />
+                  {formatFileSize(selectedFile.size)}
+                </p>
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); setSelectedFile(null); setError(null); }}
+                className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors flex-shrink-0">
+                <X size={14} />
               </button>
-            )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Generate button */}
       <AnimatePresence>
-        {selectedFiles.length > 0 && (
+        {selectedFile && (
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 0.05 }}>
             <motion.div whileTap={{ scale: 0.98 }}>
               <Button onClick={handleGenerate} disabled={disabled} loading={disabled} size="lg" className="w-full gap-2">
                 <Upload size={18} />
-                {multiple && selectedFiles.length > 1
-                  ? `Generate ${selectedFiles.length} Decks`
-                  : 'Generate Study Deck'}
+                Generate Study Deck
               </Button>
             </motion.div>
           </motion.div>
