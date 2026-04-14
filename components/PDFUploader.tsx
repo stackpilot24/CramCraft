@@ -11,7 +11,7 @@ interface PDFUploaderProps {
   disabled?: boolean;
 }
 
-const MAX_SIZE = 500 * 1024 * 1024; // 500 MB
+const MAX_SIZE = 100 * 1024 * 1024; // 100 MB
 
 function getFileType(file: File): 'pdf' | 'pptx' | null {
   const name = file.name.toLowerCase();
@@ -36,7 +36,7 @@ function formatFileSize(bytes: number): string {
 
 function validateFile(file: File): string | null {
   if (!getFileType(file)) return 'Please upload a PDF or PowerPoint (PPTX) file.';
-  if (file.size > MAX_SIZE) return `File too large. Max 500 MB (yours: ${formatFileSize(file.size)}).`;
+  if (file.size > MAX_SIZE) return `File too large. Max 100 MB (yours: ${formatFileSize(file.size)}).`;
   return null;
 }
 
@@ -142,7 +142,7 @@ export default function PDFUploader({ onUpload, disabled }: PDFUploaderProps) {
                   <Presentation size={11} /> PPTX
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs font-sans text-gray-400">
-                  Up to 500 MB
+                  Up to 100 MB
                 </span>
               </div>
             </motion.div>
