@@ -1,6 +1,16 @@
 -- Enable UUID extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- 0. USERS TABLE (populated on every login via NextAuth callback)
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,           -- Google sub (stable user ID)
+  email TEXT NOT NULL,
+  name TEXT,
+  image TEXT,
+  first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 1. DECKS TABLE
 CREATE TABLE IF NOT EXISTS decks (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

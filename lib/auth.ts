@@ -1,6 +1,7 @@
 import type { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { getServerSession } from 'next-auth/next';
+import { upsertUser } from '@/lib/db';
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -17,6 +18,21 @@ export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt' },
   pages: { signIn: '/auth/signin' },
   callbacks: {
+    async signIn({ user, account }) {
+      if (account && user.email) {
+        try {
+          await upsertUser({
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            image: user.image,
+          });
+        } catch (e) {
+          console.error('[signIn upsertUser]', e);
+        }
+      }
+      return true;
+    },
     jwt({ token, account, profile }) {
       // On first sign-in, persist the provider's sub as the stable user ID
       if (account && profile) {

@@ -114,6 +114,16 @@ async function ensureSchema() {
   await sql`CREATE INDEX IF NOT EXISTS idx_revision_sheets_deck ON revision_sheets(deck_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_decks_user ON decks(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_exam_sessions_user ON exam_sessions(user_id)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      name TEXT,
+      image TEXT,
+      first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ DEFAULT NOW()
+    )`;
 }
 
 async function db() {
@@ -342,6 +352,25 @@ export async function deleteExamSession(id: string) {
 }
 
 // ─── Note cards (legacy) ─────────────────────────────────────────────────────
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+export async function upsertUser(user: {
+  id: string;
+  email: string;
+  name?: string | null;
+  image?: string | null;
+}) {
+  const sql = await db();
+  await sql`
+    INSERT INTO users (id, email, name, image, first_seen_at, last_seen_at)
+    VALUES (${user.id}, ${user.email}, ${user.name ?? null}, ${user.image ?? null}, NOW(), NOW())
+    ON CONFLICT (id) DO UPDATE SET
+      email = EXCLUDED.email,
+      name = EXCLUDED.name,
+      image = EXCLUDED.image,
+      last_seen_at = NOW()`;
+}
 
 export async function getNoteCardsByDeckId(deckId: string) {
   const sql = await db();
