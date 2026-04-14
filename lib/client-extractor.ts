@@ -1,8 +1,16 @@
 /**
  * Client-side text extraction from PDF and PPTX files.
  * Runs entirely in the browser — no file is uploaded to the server.
- * This lets files of any size work regardless of server request limits.
+ * PDF.js is loaded from CDN at runtime (not bundled) to avoid webpack/canvas issues.
  */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+declare global {
+  interface Window {
+    pdfjsLib: any;
+  }
+}
 
 function detectFileType(file: File): 'pdf' | 'pptx' | null {
   const name = file.name.toLowerCase();
@@ -18,11 +26,30 @@ function detectFileType(file: File): 'pdf' | 'pptx' | null {
   return null;
 }
 
-async function extractPDF(file: File): Promise<{ text: string; pages: number }> {
-  const pdfjsLib = await import('pdfjs-dist');
+/** Load PDF.js 3.x from CDN as a global script (avoids webpack bundling and canvas issues). */
+function loadPdfJs(): Promise<any> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Browser only'));
 
-  // Use unpkg CDN for the worker — avoids Next.js bundler/worker complexity
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  // Return cached instance if already loaded
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.onload = () => {
+      const lib = window.pdfjsLib;
+      if (!lib) { reject(new Error('PDF.js did not load correctly')); return; }
+      lib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve(lib);
+    };
+    script.onerror = () => reject(new Error('Failed to load PDF reader. Please check your internet connection.'));
+    document.head.appendChild(script);
+  });
+}
+
+async function extractPDF(file: File): Promise<{ text: string; pages: number }> {
+  const pdfjsLib = await loadPdfJs();
 
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -32,9 +59,8 @@ async function extractPDF(file: File): Promise<{ text: string; pages: number }> 
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     const text = content.items
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((item): item is any => 'str' in item)
-      .map((item: { str: string }) => item.str)
+      .filter((item: any) => typeof item.str === 'string')
+      .map((item: any) => item.str)
       .join(' ')
       .trim();
     if (text) pageTexts.push(text);
@@ -79,7 +105,6 @@ async function extractPPTX(file: File): Promise<{ text: string; slides: number }
     if (text) slideTexts.push(text);
   }
 
-  // Also grab slide notes for extra context
   const noteNames = Object.keys(zip.files).filter((name) =>
     /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(name)
   );
@@ -110,10 +135,6 @@ export interface ExtractResult {
   fileType: 'pdf' | 'pptx';
 }
 
-/**
- * Extract text from a PDF or PPTX file entirely in the browser.
- * Throws with a user-friendly message on failure.
- */
 export async function extractFileText(file: File): Promise<ExtractResult> {
   const fileType = detectFileType(file);
   if (!fileType) {
