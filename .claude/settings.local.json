@@ -31,7 +31,8 @@
       "Bash(netstat -ano)",
       "Bash(taskkill:*)",
       "Bash(del \"E:\\\\Projects\\\\FlashCardAI\\\\components\\\\NavigationProgress.tsx\")",
-      "Bash(node -e \"const pkg = require\\('./package.json'\\); console.log\\('next-auth:', pkg.dependencies['next-auth']\\)\")"
+      "Bash(node -e \"const pkg = require\\('./package.json'\\); console.log\\('next-auth:', pkg.dependencies['next-auth']\\)\")",
+      "Bash(node -e \"const p = require\\('pdfjs-dist/package.json'\\); console.log\\(p.version\\)\")"
     ]
   }
 }
