@@ -17,7 +17,7 @@ const features = [
   {
     icon: Upload,
     title: 'Drop any file',
-    desc: 'PDF or PPTX, up to 500 MB.',
+    desc: 'PDF or PPTX, up to 100 MB.',
     color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400',
     delay: 'delay-[400ms]',
   },

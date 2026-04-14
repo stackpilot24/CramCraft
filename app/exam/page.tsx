@@ -268,7 +268,7 @@ export default function ExamPage() {
                     <Presentation size={11} /> PPTX
                   </span>
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs text-gray-400 font-sans">
-                    Up to 500 MB
+                    Up to 100 MB
                   </span>
                 </div>
                 <Button onClick={() => setStage('upload')} size="lg" className="mx-auto gap-2">
