@@ -22,6 +22,7 @@ const sortOptions: { key: SortKey; label: string }[] = [
 export default function DashboardPage() {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('recent');
   const [streak, setStreak] = useState<StreakData | null>(null);
@@ -31,9 +32,14 @@ export default function DashboardPage() {
       fetch('/api/decks').then((r) => r.json()),
       fetch('/api/stats').then((r) => r.json()).catch(() => null),
     ]).then(([decksData, statsData]) => {
-      setDecks(decksData);
+      if (Array.isArray(decksData)) {
+        setDecks(decksData);
+      } else {
+        setError(decksData?.error ?? 'Failed to load decks');
+      }
       if (statsData?.streak) setStreak(statsData.streak);
-    }).finally(() => setLoading(false));
+    }).catch(() => setError('Could not connect to the database'))
+      .finally(() => setLoading(false));
   }, []);
 
   const filtered = decks
@@ -154,6 +160,15 @@ export default function DashboardPage() {
           {[...Array(6)].map((_, i) => (
             <DeckCardSkeleton key={i} />
           ))}
+        </div>
+      ) : error ? (
+        <div className="text-center py-20">
+          <div className="w-16 h-16 rounded-2xl bg-red-50 dark:bg-red-900/20 flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">⚠️</span>
+          </div>
+          <h2 className="text-xl font-serif text-gray-900 dark:text-gray-100 mb-2">Database not connected</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 font-sans max-w-sm mx-auto mb-2">{error}</p>
+          <p className="text-xs text-gray-400 font-sans">Add <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">SUPABASE_DATABASE_URL</code> to your Vercel environment variables and redeploy.</p>
         </div>
       ) : decks.length === 0 ? (
         /* Empty state */
