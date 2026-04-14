@@ -73,45 +73,52 @@ export default function StudySession({ deck, cards: initialCards, backHref }: St
   }, [isSubmitting]);
 
   const handleRate = useCallback(
-    async (quality: number) => {
+    (quality: number) => {
       if (!currentCard || !isFlipped || isSubmitting) return;
       setIsSubmitting(true);
 
-      try {
-        const res = await fetch(`/api/cards/${currentCard.id}/review`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quality }),
-        });
+      // Optimistic: move to next card immediately — save in background
+      const cardId = currentCard.id;
+      const newResult = { card: currentCard, quality, nextInterval: '…' };
+      const newResults = [...results, newResult];
 
-        const data = await res.json();
-        const nextInterval = formatInterval(data.intervalDays ?? 0);
-
-        setResults((prev) => [...prev, { card: currentCard, quality, nextInterval }]);
-
-        if (currentIndex + 1 >= cards.length) {
-          setIsComplete(true);
-          const allResults = [...results, { quality }];
-          const correct = allResults.filter((r) => r.quality >= 3).length;
-          if (correct / allResults.length >= 0.6) {
-            setTimeout(() => {
-              confetti({
-                particleCount: 120,
-                spread: 80,
-                origin: { y: 0.6 },
-                colors: ['#E6B566', '#D4994A', '#C77DFF', '#FDF6EC', '#F5C85A'],
-              });
-            }, 300);
-          }
-        } else {
-          setCurrentIndex((i) => i + 1);
-          setIsFlipped(false);
+      if (currentIndex + 1 >= cards.length) {
+        setResults(newResults);
+        setIsComplete(true);
+        const correct = newResults.filter((r) => r.quality >= 3).length;
+        if (correct / newResults.length >= 0.6) {
+          setTimeout(() => {
+            confetti({
+              particleCount: 120,
+              spread: 80,
+              origin: { y: 0.6 },
+              colors: ['#E6B566', '#D4994A', '#C77DFF', '#FDF6EC', '#F5C85A'],
+            });
+          }, 300);
         }
-      } catch (err) {
-        console.error('Failed to submit review:', err);
-      } finally {
-        setIsSubmitting(false);
+      } else {
+        setResults(newResults);
+        setCurrentIndex((i) => i + 1);
+        setIsFlipped(false);
       }
+
+      setIsSubmitting(false);
+
+      // Save review in the background — no await, no blocking
+      fetch(`/api/cards/${cardId}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quality }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          // Update the interval display once we have the real value
+          const interval = formatInterval(data.intervalDays ?? 0);
+          setResults((prev) =>
+            prev.map((r) => (r.card.id === cardId && r.nextInterval === '…' ? { ...r, nextInterval: interval } : r))
+          );
+        })
+        .catch((err) => console.error('Failed to save review:', err));
     },
     [currentCard, currentIndex, cards.length, isFlipped, isSubmitting, results]
   );

@@ -79,7 +79,7 @@ export default function FlashCard({
           height: '400px',
         }}
         animate={{ rotateY }}
-        transition={{ duration: 0.55, ease: [0.4, 0, 0.2, 1] }}
+        transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
       >
         {/* Front */}
         <div
