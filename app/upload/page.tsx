@@ -38,13 +38,20 @@ const CARDS_PER_PAGE = 10;
 const SHEETS_PER_PAGE = 1; // one revision sheet at a time
 
 async function safeJsonError(res: Response, fallback: string): Promise<string> {
-  try {
-    const data = await res.json();
-    return data.error || fallback;
-  } catch {
-    if (res.status === 413) return 'File is too large. Try a smaller PDF or PPTX.';
-    return `${fallback} (status ${res.status})`;
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      const data = await res.json();
+      return data.error || fallback;
+    } catch {
+      return fallback;
+    }
   }
+  // Non-JSON response (Vercel 413, gateway timeout, nginx errors, etc.)
+  if (res.status === 413) return 'File is too large for the server. Please use a PDF or PPTX under 4 MB.';
+  if (res.status === 504 || res.status === 524) return 'Request timed out. Try a smaller or simpler file.';
+  if (res.status === 401) return 'Please sign in to upload files.';
+  return `${fallback} (${res.status})`;
 }
 
 export default function UploadPage() {

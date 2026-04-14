@@ -36,9 +36,17 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+const VERCEL_WARN_SIZE = 4 * 1024 * 1024; // 4 MB — warn before Vercel's 4.5 MB hard limit
+
 function validateFile(file: File): string | null {
   if (!getFileType(file)) return 'Please upload a PDF or PowerPoint (PPTX) file.';
   if (file.size > MAX_SIZE) return `File too large. Max 500 MB (yours: ${formatFileSize(file.size)}).`;
+  return null;
+}
+
+function warnFile(file: File): string | null {
+  if (file.size > VERCEL_WARN_SIZE)
+    return `Large file (${formatFileSize(file.size)}) — may fail on hosted servers. Try to keep files under 4 MB.`;
   return null;
 }
 
@@ -46,6 +54,7 @@ export default function PDFUploader({ onUpload, onUploadMultiple, multiple = fal
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const addFiles = useCallback((incoming: File[]) => {
@@ -63,7 +72,11 @@ export default function PDFUploader({ onUpload, onUploadMultiple, multiple = fal
     }
 
     if (firstErr) setError(firstErr);
-    if (valid.length > 0) setSelectedFiles((prev) => multiple ? [...prev, ...valid] : [valid[0]]);
+    if (valid.length > 0) {
+      setSelectedFiles((prev) => multiple ? [...prev, ...valid] : [valid[0]]);
+      const w = valid.map(warnFile).find(Boolean) ?? null;
+      setWarning(w);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [multiple, selectedFiles]);
 
@@ -177,6 +190,17 @@ export default function PDFUploader({ onUpload, onUploadMultiple, multiple = fal
             className="flex items-start gap-2 text-red-600 dark:text-red-400 text-sm font-sans">
             <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
             {error}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Warning */}
+      <AnimatePresence>
+        {warning && !error && (
+          <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="flex items-start gap-2 text-amber-600 dark:text-amber-400 text-sm font-sans">
+            <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
+            {warning}
           </motion.div>
         )}
       </AnimatePresence>

@@ -103,8 +103,14 @@ export default function ExamPage() {
 
       if (!res.ok) {
         let errMsg = 'Generation failed';
-        try { const d = await res.json(); errMsg = d.error || errMsg; }
-        catch { if (res.status === 413) errMsg = 'File is too large. Try a smaller file.'; }
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          try { const d = await res.json(); errMsg = d.error || errMsg; } catch { /* ignore */ }
+        } else if (res.status === 413) {
+          errMsg = 'File is too large. Please use a PDF or PPTX under 4 MB.';
+        } else if (res.status === 504 || res.status === 524) {
+          errMsg = 'Request timed out. Try a smaller file.';
+        }
         throw new Error(errMsg);
       }
 
