@@ -20,8 +20,15 @@ import Badge from '@/components/ui/Badge';
 import RevisionSheetCard from '@/components/RevisionSheet';
 import type { GeneratedCard, GeneratedRevisionSheet, UnifiedGenerateResponse } from '@/lib/types';
 
-type Stage = 'upload' | 'generating' | 'preview';
+type Stage = 'upload' | 'generating' | 'preview' | 'batch';
 type PreviewTab = 'notes' | 'flashcards';
+
+interface BatchItem {
+  file: File;
+  status: 'pending' | 'processing' | 'done' | 'error';
+  deckTitle?: string;
+  error?: string;
+}
 
 interface GenerateApiResponse extends UnifiedGenerateResponse {
   pages?: number;
@@ -45,6 +52,7 @@ export default function UploadPage() {
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [previewTab, setPreviewTab] = useState<PreviewTab>('notes');
   const [cardPage, setCardPage] = useState(1);
+  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
 
   const handleUpload = async (file: File) => {
     setFilename(file.name);
@@ -88,6 +96,45 @@ export default function UploadPage() {
       clearInterval(stepTimer);
       setError(err instanceof Error ? err.message : 'Something went wrong');
       setStage('upload');
+    }
+  };
+
+  const handleUploadMultiple = async (files: File[]) => {
+    if (files.length === 1) { handleUpload(files[0]); return; }
+    setError(null);
+    const items: BatchItem[] = files.map((f) => ({ file: f, status: 'pending' }));
+    setBatchItems(items);
+    setStage('batch');
+
+    for (let i = 0; i < files.length; i++) {
+      setBatchItems((prev) => prev.map((it, idx) => idx === i ? { ...it, status: 'processing' } : it));
+      try {
+        const formData = new FormData();
+        formData.append('file', files[i]);
+        const res = await fetch('/api/generate', { method: 'POST', body: formData });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Generation failed'); }
+        const data: GenerateApiResponse = await res.json();
+        // Auto-save
+        const saveRes = await fetch('/api/decks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: data.suggestedTitle,
+            description: data.description,
+            sourceFilename: files[i].name,
+            cards: data.cards,
+            revisionSheets: data.revisionSheets,
+          }),
+        });
+        if (!saveRes.ok) throw new Error('Failed to save deck');
+        setBatchItems((prev) => prev.map((it, idx) =>
+          idx === i ? { ...it, status: 'done', deckTitle: data.suggestedTitle } : it
+        ));
+      } catch (err) {
+        setBatchItems((prev) => prev.map((it, idx) =>
+          idx === i ? { ...it, status: 'error', error: err instanceof Error ? err.message : 'Failed' } : it
+        ));
+      }
     }
   };
 
@@ -224,7 +271,7 @@ export default function UploadPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
           >
-            <PDFUploader onUpload={handleUpload} />
+            <PDFUploader onUpload={handleUpload} onUploadMultiple={handleUploadMultiple} multiple />
           </motion.div>
         )}
 
@@ -238,6 +285,40 @@ export default function UploadPage() {
             className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-card border border-gray-100 dark:border-gray-700"
           >
             <GenerationProgress step={generationStep} filename={filename} />
+          </motion.div>
+        )}
+
+        {/* ── Batch processing ── */}
+        {stage === 'batch' && (
+          <motion.div key="batch" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-card border border-gray-100 dark:border-gray-700 space-y-4">
+            <h2 className="font-serif text-gray-900 dark:text-gray-100 text-lg">Generating {batchItems.length} decks…</h2>
+            <div className="space-y-3">
+              {batchItems.map((item, i) => (
+                <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-700/50">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-sm ${
+                    item.status === 'done' ? 'bg-green-100 dark:bg-green-900/40 text-green-600' :
+                    item.status === 'error' ? 'bg-red-100 dark:bg-red-900/40 text-red-500' :
+                    item.status === 'processing' ? 'bg-primary/20 text-primary' :
+                    'bg-gray-200 dark:bg-gray-600 text-gray-400'
+                  }`}>
+                    {item.status === 'done' ? '✓' : item.status === 'error' ? '✗' : item.status === 'processing' ? '…' : String(i + 1)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-sans font-medium text-gray-800 dark:text-gray-200 truncate">{item.file.name}</p>
+                    {item.status === 'done' && <p className="text-xs text-green-600 dark:text-green-400 font-sans">Saved as "{item.deckTitle}"</p>}
+                    {item.status === 'error' && <p className="text-xs text-red-500 font-sans">{item.error}</p>}
+                    {item.status === 'processing' && <p className="text-xs text-primary font-sans animate-pulse">Generating…</p>}
+                    {item.status === 'pending' && <p className="text-xs text-gray-400 font-sans">Waiting…</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {batchItems.every((it) => it.status === 'done' || it.status === 'error') && (
+              <Button onClick={() => router.push('/dashboard')} className="w-full gap-2 mt-2">
+                View all in Library →
+              </Button>
+            )}
           </motion.div>
         )}
 

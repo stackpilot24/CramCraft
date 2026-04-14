@@ -18,6 +18,8 @@ import {
   Star,
   Info,
   Save,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import PDFUploader from '@/components/PDFUploader';
@@ -63,6 +65,16 @@ export default function ExamPage() {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [questionPage, setQuestionPage] = useState(1);
+  const [revealedAnswers, setRevealedAnswers] = useState<Set<number>>(new Set());
+  const [showAllAnswers, setShowAllAnswers] = useState(false);
+
+  const toggleAnswer = (idx: number) => {
+    setRevealedAnswers((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
 
   useEffect(() => {
     fetch('/api/exam/sessions')
@@ -385,6 +397,13 @@ export default function ExamPage() {
                   <Sparkles size={15} className="text-violet-500" />
                   {totalQuestions} Exam Questions
                 </h2>
+                <button
+                  onClick={() => { setShowAllAnswers((v) => !v); setRevealedAnswers(new Set()); }}
+                  className="flex items-center gap-1.5 text-xs font-sans font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors px-2.5 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  {showAllAnswers ? <EyeOff size={13} /> : <Eye size={13} />}
+                  {showAllAnswers ? 'Hide answers' : 'Show answers'}
+                </button>
               </div>
 
               <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -414,6 +433,24 @@ export default function ExamPage() {
                         <p className="text-sm font-serif text-gray-900 dark:text-gray-100 leading-snug">
                           {q.question}
                         </p>
+                        {/* Answer reveal */}
+                        {(showAllAnswers || revealedAnswers.has(qPageStart + localIdx)) ? (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-2 p-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg"
+                          >
+                            <p className="text-xs font-sans font-semibold text-amber-700 dark:text-amber-400 mb-1 uppercase tracking-wide">Answer</p>
+                            <p className="text-xs font-sans text-gray-700 dark:text-gray-300 leading-relaxed">{q.answer}</p>
+                          </motion.div>
+                        ) : (
+                          <button
+                            onClick={() => toggleAnswer(qPageStart + localIdx)}
+                            className="mt-1.5 text-xs text-gray-400 hover:text-primary dark:hover:text-primary-300 font-sans flex items-center gap-1 transition-colors"
+                          >
+                            <Eye size={11} /> Show answer
+                          </button>
+                        )}
                       </div>
                     </motion.div>
                   );
@@ -428,7 +465,7 @@ export default function ExamPage() {
                   </span>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setQuestionPage((p) => Math.max(1, p - 1))}
+                      onClick={() => { setQuestionPage((p) => Math.max(1, p - 1)); if (!showAllAnswers) setRevealedAnswers(new Set()); }}
                       disabled={questionPage === 1}
                       className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >
@@ -447,7 +484,7 @@ export default function ExamPage() {
                         ) : (
                           <button
                             key={p}
-                            onClick={() => setQuestionPage(p as number)}
+                            onClick={() => { setQuestionPage(p as number); if (!showAllAnswers) setRevealedAnswers(new Set()); }}
                             className={`w-7 h-7 rounded-lg text-xs font-sans font-medium transition-colors ${
                               questionPage === p
                                 ? 'bg-violet-600 text-white'
@@ -459,7 +496,7 @@ export default function ExamPage() {
                         )
                       )}
                     <button
-                      onClick={() => setQuestionPage((p) => Math.min(totalQPages, p + 1))}
+                      onClick={() => { setQuestionPage((p) => Math.min(totalQPages, p + 1)); if (!showAllAnswers) setRevealedAnswers(new Set()); }}
                       disabled={questionPage === totalQPages}
                       className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >

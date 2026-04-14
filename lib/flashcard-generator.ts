@@ -239,7 +239,7 @@ IMPORTANT INSTRUCTIONS:
 6. Make sure the JSON is complete and properly closed
 
 STUDY MATERIAL:
-${pdfText.slice(0, 15000)}
+${pdfText.slice(0, 8000)}
 
 Remember: Return ONLY the JSON object. No other text.`;
 
@@ -263,8 +263,8 @@ export async function generateWithPromptStrategy(
   filename: string
 ): Promise<UnifiedGenerateResponse> {
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 8192,
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4000,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     system: [{ type: 'text', text: FLASHCARD_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }] as any,
     messages: [
@@ -370,7 +370,7 @@ export async function regenerateCard(
   context: string
 ): Promise<{ front: string; back: string }> {
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 512,
     messages: [
       {
