@@ -1,7 +1,8 @@
 # CramCraft — Smart Flashcard Engine
 
 > Turn any PDF or PPTX into a smart, practice-ready deck of flashcards with AI and spaced repetition.
-IVE DEMO-- https://cram-craft.vercel.app/
+> 
+LIVE DEMO-- https://cram-craft.vercel.app/
 ---
 
 ## Overview
