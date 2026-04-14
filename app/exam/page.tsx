@@ -86,31 +86,38 @@ export default function ExamPage() {
 
   const handleUpload = async (file: File) => {
     setFilename(file.name);
-    setStage('generating');
     setError(null);
     setGenerationStep(0);
 
+    // Step 1: Extract text in browser (no file size limits)
+    setStage('generating');
+    let text: string;
+    try {
+      const { extractFileText } = await import('@/lib/client-extractor');
+      const result = await extractFileText(file);
+      text = result.text;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read the file.');
+      setStage('upload');
+      return;
+    }
+
+    // Step 2: Send extracted text to API
     const stepTimer = setInterval(() => {
       setGenerationStep((s) => Math.min(s + 1, 2));
     }, 1800);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await fetch('/api/exam/generate', { method: 'POST', body: formData });
+      const res = await fetch('/api/exam/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, filename: file.name }),
+      });
       clearInterval(stepTimer);
 
       if (!res.ok) {
         let errMsg = 'Generation failed';
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
-          try { const d = await res.json(); errMsg = d.error || errMsg; } catch { /* ignore */ }
-        } else if (res.status === 413) {
-          errMsg = 'File is too large. Please use a PDF or PPTX under 4 MB.';
-        } else if (res.status === 504 || res.status === 524) {
-          errMsg = 'Request timed out. Try a smaller file.';
-        }
+        try { const d = await res.json(); errMsg = d.error || errMsg; } catch { /* ignore */ }
         throw new Error(errMsg);
       }
 
